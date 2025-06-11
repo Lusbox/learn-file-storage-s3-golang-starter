@@ -111,6 +111,18 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	outputPath, err6 := processVideoForFastStart(tmpFile.Name())
+	if err6 != nil {
+		respondWithError(w, http.StatusBadRequest, "unable to update faststart path", err6)
+	}
+
+	fastStartFile, err := os.Open(outputPath)
+	if err != nil {
+		respondWithError(w, http.StatusBadRequest, "unable to open fast start file", err)
+	}
+
+	defer fastStartFile.Close()
+
 
 	randNum := make([]byte, 32)
 	rand.Read(randNum)
@@ -125,9 +137,9 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 	}
 
 	_, err4 := cfg.s3Client.PutObject(r.Context(), &s3.PutObjectInput{
-							Bucket: aws.String("tubely-65731"),
+							Bucket: aws.String("tubely-private-65732"),
 							Key: aws.String(awsVideoKey),
-							Body: tmpFile,
+							Body: fastStartFile,
 							ContentType: aws.String(mediatype),
 						})
 	if err4 != nil {
@@ -135,7 +147,7 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	videoURL := fmt.Sprintf("https://%s.s3.%s.amazonaws.com/%s", cfg.s3Bucket, cfg.s3Region, awsVideoKey)
+	videoURL := fmt.Sprintf("%s,%s", cfg.s3Bucket, awsVideoKey)
 
 	video.VideoURL = &videoURL
 	video.UpdatedAt = time.Now()
@@ -146,6 +158,13 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	respondWithJSON(w, http.StatusOK, video)
+	presignedVideo, err := cfg.dbVideoToSignedVideo(video)
+	if err != nil {
+		respondWithError(w, http.StatusBadRequest, "unable to presign video", err)
+		return
+	}
+
+	respondWithJSON(w, http.StatusOK, presignedVideo)
 
 }
+
